@@ -1,4 +1,5 @@
 *~
 .mypy_cache/
 .python-version
+.tox/
 __pycache__/
