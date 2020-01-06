@@ -1,0 +1,3 @@
+[MESSAGES CONTROL]
+# Formatting handled by black, imports by isort
+disable = format,wrong-import-order
