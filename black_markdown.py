@@ -16,29 +16,27 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""
-Run black on Python code blocks in Markdown files.
-"""
+"""Run black on Python code blocks in Markdown files."""
 
 import fileinput
 import re
-import sys
 import subprocess
-from typing import List, Tuple
-
+import sys
+from typing import Collection, List, Optional
 
 BLACK_DEFAULT_OPTIONS = ["--quiet"]
 
 
 def usage(exitcode: int) -> None:
-    f = sys.stderr if exitcode else sys.stdout
+    """Output usage message and exit."""
+    outfile = sys.stderr if exitcode else sys.stdout
     print(
         f"""\
 Usage: {sys.argv[0]} [--help|-h|-?] [black options] MARKDOWN-FILE...
 
 Options list terminates after "--" or at first argument not starting with "-".
 black options default to {' '.join(BLACK_DEFAULT_OPTIONS)}.""",
-        file=f,
+        file=outfile,
     )
     if not exitcode:
         print(
@@ -46,14 +44,19 @@ black options default to {' '.join(BLACK_DEFAULT_OPTIONS)}.""",
 
 {sys.argv[0]} runs black on Python code blocks in Markdown files.
 Be sure to have backups and inspect results afterwards, as there are no guarantees whatsoever. For example, but certainly not limited to, data loss can be easily accomplished by not having black installed and in $PATH, or Ctrl-C'ing execution of this script.""",
-            file=f,
+            file=outfile,
         )
     sys.exit(exitcode)
 
 
-def detect_indent(lines: List[str]) -> str:
+def guess_indent(lines: Collection[str]) -> str:
+    """
+    Guess indent from list of lines.
+
+    Completely empty lines are ignored, i.e. they don't force empty guess result.
+    """
     for char in (" ", "\t"):
-        n = min(
+        count = min(
             len(matcher.group("indent"))
             for matcher in (
                 re.match(f"(?P<indent>{char}*)[^{char}]", line)
@@ -63,20 +66,23 @@ def detect_indent(lines: List[str]) -> str:
             )
             if matcher
         )
-        if n:
-            return char * n
+        if count:
+            return char * count
     return ""
 
 
-def dedent(lines: List[str], prefix: str) -> List[str]:
+def dedent(lines: Collection[str], prefix: str) -> List[str]:
+    """Dedent list of lines."""
     return [line[len(prefix) :] for line in lines]
 
 
-def indent(lines: List[str], prefix: str) -> List[str]:
-    return [f"{prefix}{line}" for line in lines]
+def indent(lines: Collection[str], prefix: str) -> List[str]:
+    """Indent list of lines."""
+    return [f"{prefix}{line}" if line not in ("", "\n") else line for line in lines]
 
 
 def main() -> None:
+    """Run main entry point."""
 
     if len(sys.argv) < 2:
         usage(1)
@@ -94,9 +100,9 @@ def main() -> None:
         usage(1)
 
     black = ["black"] + (black_options or BLACK_DEFAULT_OPTIONS) + ["-"]
-    buf = []
-    with fileinput.input(files, inplace=True) as f:
-        for line in f:
+    buf: Optional[List[str]] = None
+    with fileinput.input(files, inplace=True) as infile:
+        for line in infile:
 
             if fileinput.isfirstline():
                 if buf is not None:
@@ -117,14 +123,14 @@ def main() -> None:
 
             if line.strip() == "```":
                 print(f"# {fileinput.filename()}:{start}", file=sys.stderr)
-                lines, indent_prefix = dedent(buf)
-                res = subprocess.run(
-                    black, input="".join(lines), stdout=subprocess.PIPE, text=True
+                prefix = guess_indent(buf)
+                res = subprocess.run(  # type: ignore # mypy/typeshed bug? # nosec # pylint: disable=subprocess-run-check
+                    black,
+                    input="".join(dedent(buf, prefix)),
+                    stdout=subprocess.PIPE,
+                    text=True,
                 )
-                # TODO
-                sys.stdout.write(
-                    "".join(indent(res.stdout.splitlines(), indent_prefix))
-                )
+                sys.stdout.write("".join(indent(res.stdout.splitlines(True), prefix)))
                 buf = None
                 sys.stdout.write(line)
             else:
